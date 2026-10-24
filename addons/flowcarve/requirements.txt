@@ -1,0 +1,5 @@
+# flowcarve runs on the Python standard library alone (HAR, raw HTTP, HTML/JS/CSS/JSON text, stdin).
+#
+# OPTIONAL: mitmproxy, used only to read native flow dumps (.mitm / .flow / .flows / .dump).
+# Install it yourself when you need that input; it is never bundled or vendored with Bughunt.
+mitmproxy>=10.0.0

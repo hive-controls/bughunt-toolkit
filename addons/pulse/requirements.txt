@@ -1,0 +1,14 @@
+# Dependencies of the pulse addon.
+#
+# pulse runs inside Bughunt and imports bughunt.core (scope, policy, guarded client), so the
+# bughunt package itself must be installed in the same environment (pip install -e . from the
+# repository root). It is not listed here.
+#
+# Keep these in step with the project pins in pyproject.toml: the egress layer relies on
+# httpx 0.28.1 internals.
+httpx==0.28.1
+rich>=13.7.0
+
+# OPTIONAL. Install h2 only if you want HTTP/2 against servers that offer it. pulse checks for the
+# package when a run starts and falls back to HTTP/1.1 without it, so nothing breaks if it is absent.
+# h2>=4.1

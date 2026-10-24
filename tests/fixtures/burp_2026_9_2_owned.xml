@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!DOCTYPE items [
+<!ELEMENT items (item*)>
+<!ATTLIST items burpVersion CDATA "">
+<!ATTLIST items exportTime CDATA "">
+<!ELEMENT item (time, url, host, port, protocol, method, path, extension, request, status, responselength, mimetype, response, comment)>
+<!ELEMENT time (#PCDATA)>
+<!ELEMENT url (#PCDATA)>
+<!ELEMENT host (#PCDATA)>
+<!ATTLIST host ip CDATA "">
+<!ELEMENT port (#PCDATA)>
+<!ELEMENT protocol (#PCDATA)>
+<!ELEMENT method (#PCDATA)>
+<!ELEMENT path (#PCDATA)>
+<!ELEMENT extension (#PCDATA)>
+<!ELEMENT request (#PCDATA)>
+<!ATTLIST request base64 (true|false) "false">
+<!ELEMENT status (#PCDATA)>
+<!ELEMENT responselength (#PCDATA)>
+<!ELEMENT mimetype (#PCDATA)>
+<!ELEMENT response (#PCDATA)>
+<!ATTLIST response base64 (true|false) "false">
+<!ELEMENT comment (#PCDATA)>
+]>
+<items burpVersion="2026.9.2" exportTime="Thu Oct 22 05:17:31 PDT 2026">
+  <item>
+    <time>Thu Oct 22 05:08:27 PDT 2026</time>
+    <url><![CDATA[http://127.0.0.1:59988/whk010/fixture?token=whk010-query-secret]]></url>
+    <host ip="127.0.0.1">127.0.0.1</host>
+    <port>59988</port>
+    <protocol>http</protocol>
+    <method><![CDATA[GET]]></method>
+    <path><![CDATA[/whk010/fixture?token=whk010-query-secret]]></path>
+    <extension>null</extension>
+    <request base64="true"><![CDATA[R0VUIC93aGswMTAvZml4dHVyZT90b2tlbj13aGswMTAtcXVlcnktc2VjcmV0IEhUVFAvMS4xDQpIb3N0OiAxMjcuMC4wLjE6NTk5ODgNCkFjY2VwdDogKi8qDQpBY2NlcHQtRW5jb2Rpbmc6IGd6aXAsIGRlZmxhdGUsIGJyDQpDb25uZWN0aW9uOiBrZWVwLWFsaXZlDQpVc2VyLUFnZW50OiBweXRob24taHR0cHgvMC4yOC4xDQpBdXRob3JpemF0aW9uOiBCZWFyZXIgd2hrMDEwLXJlcXVlc3Qtc2VjcmV0DQpDb29raWU6IGlkPXdoazAxMC1jb29raWUtc2VjcmV0DQoNCg==]]></request>
+    <status>200</status>
+    <responselength>189</responselength>
+    <mimetype>text</mimetype>
+    <response base64="true"><![CDATA[SFRUUC8xLjAgMjAwIE9LDQpTZXJ2ZXI6IEJhc2VIVFRQLzAuNiBQeXRob24vMy4xNC4zDQpEYXRlOiBUaHUsIDIyIE9jdCAyMDI2IDEyOjA4OjI3IEdNVA0KQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluDQpDb250ZW50LUxlbmd0aDogMTINClNldC1Db29raWU6IGlkPXdoazAxMC1yZXNwb25zZS1zZWNyZXQNCg0Kd2hrMDEwLW93bmVk]]></response>
+    <comment></comment>
+  </item>
+</items>

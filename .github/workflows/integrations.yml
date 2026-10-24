@@ -1,0 +1,221 @@
+name: Docker integrations
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'bughunt/**'
+      - 'tests/**'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/integrations.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integrations-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consumers:
+    name: owned Docker consumers (Linux, containerd, UID 1000)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Docker with the required containerd image store
+        id: docker
+        uses: docker/setup-docker-action@v5
+        with:
+          set-host: false
+          runtime-basedir: /tmp/bughunt-docker-${{ github.run_id }}-${{ github.run_attempt }}
+          daemon-config: |
+            {"features": {"containerd-snapshotter": true}}
+
+      - name: Prepare isolated owner workspace
+        shell: bash
+        run: |
+          integration_root=$(mktemp -d /tmp/bughunt-integrations.XXXXXXXX)
+          test "$(realpath "$integration_root")" = "$integration_root"
+          chmod 755 "$integration_root"
+          mkdir "$integration_root/repo"
+          mkdir -m 700 "$integration_root/home" "$integration_root/private" "$integration_root/receipts"
+          git archive HEAD | tar -x -C "$integration_root/repo"
+          if ! getent passwd 1000 >/dev/null; then
+            sudo useradd --uid 1000 --no-create-home integration-ci
+          fi
+          python -m venv "$integration_root/venv"
+          "$integration_root/venv/bin/python" -m pip install -r requirements-hardened.txt -r requirements-dev.txt -e "$integration_root/repo" socksio==1.0.0
+          echo "INTEGRATION_ROOT=$integration_root" >> "$GITHUB_ENV"
+
+      - name: Provision pinned consumer inputs
+        shell: python
+        env:
+          INTEGRATION_DOCKER_SOCKET: ${{ steps.docker.outputs.sock }}
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import urllib.request
+          from urllib.parse import urlsplit
+
+          root = Path(os.environ['INTEGRATION_ROOT'])
+          assert root.resolve() == root and root.parent == Path('/tmp') and root.name.startswith('bughunt-integrations.')
+          interpreter = root / 'venv' / 'bin' / 'python'
+          if Path(sys.prefix).resolve() != interpreter.parent.parent.resolve():
+              os.execv(str(interpreter), [str(interpreter), *sys.argv])
+          sys.path.insert(0, str(root / 'repo'))
+          from bughunt.integrations import browser_actor, zap
+
+          runtime = root / 'repo' / '.bughunt'
+          runtime.mkdir(exist_ok=True)
+          sources = [
+              (f'https://registry.npmjs.org/playwright-core/-/playwright-core-{browser_actor.DRIVER_VERSION}.tgz',
+               f'playwright-core-{browser_actor.DRIVER_VERSION}.tgz', browser_actor.DRIVER_SHA256, 8_000_000),
+              (f'https://raw.githubusercontent.com/microsoft/playwright/v{browser_actor.DRIVER_VERSION}/utils/docker/seccomp_profile.json',
+               f'playwright-seccomp-{browser_actor.DRIVER_VERSION}.json', browser_actor.UPSTREAM_SECCOMP_SHA256, 100_000),
+          ]
+          for url, filename, expected, maximum in sources:
+              with urllib.request.urlopen(url, timeout=60) as response:
+                  content = response.read(maximum + 1)
+              assert len(content) <= maximum and hashlib.sha256(content).hexdigest() == expected, filename
+              (runtime / filename).write_bytes(content)
+          subprocess.run(['sudo', 'chown', '-R', '--no-dereference', '1000:1000',
+                          *(str(root / name) for name in ('repo', 'home', 'private', 'receipts'))], check=True)
+          endpoint = os.environ['INTEGRATION_DOCKER_SOCKET']
+          assert endpoint.startswith('unix:///') and not os.environ.get('DOCKER_HOST') and not os.environ.get('DOCKER_CONTEXT')
+          socket = Path(urlsplit(endpoint).path)
+          assert socket.is_socket() and not socket.is_symlink() and socket.resolve() == socket
+          owner = ['sudo', '-n', '--', 'setpriv', '--reuid', '1000', '--regid', str(socket.stat().st_gid),
+                   '--clear-groups', '--', 'env',
+                   f'HOME={root / "home"}', f'PATH={os.environ["PATH"]}']
+          subprocess.run(owner + ['docker', 'context', 'create', 'integration-ci', '--docker', f'host={endpoint}'], check=True)
+          subprocess.run(owner + ['docker', 'context', 'use', 'integration-ci'], check=True)
+          store = json.loads(subprocess.check_output(['docker', 'info', '--format', '{{json .DriverStatus}}'], text=True))
+          assert dict(store).get('driver-type') == 'io.containerd.snapshotter.v1', 'Containerd image store is required'
+          for image in (browser_actor.IMAGE, zap.SUPPORTED_IMAGE):
+              subprocess.run(['docker', 'pull', image], check=True)
+              actual = subprocess.check_output(['docker', 'image', 'inspect', image, '--format', '{{.Id}}'], text=True).strip()
+              assert actual == image.split('@', 1)[1], image
+          uid = subprocess.check_output(['docker', 'run', '--rm', '--pull', 'never', '--network', 'none',
+                                         zap.SUPPORTED_IMAGE, 'id', '-u'], text=True).strip()
+          assert uid == '1000', 'Pinned ZAP owner must match the private host workspace'
+
+      - name: Run sequential consumer contracts and reject unexpected skips
+        shell: python
+        env:
+          INTEGRATION_DOCKER_SOCKET: ${{ steps.docker.outputs.sock }}
+        run: |
+          import os
+          from pathlib import Path
+          import subprocess
+          from urllib.parse import urlsplit
+
+          root = Path(os.environ['INTEGRATION_ROOT'])
+          endpoint = os.environ['INTEGRATION_DOCKER_SOCKET']
+          assert endpoint.startswith('unix:///') and not os.environ.get('DOCKER_HOST') and not os.environ.get('DOCKER_CONTEXT')
+          socket = Path(urlsplit(endpoint).path)
+          assert socket.is_socket() and not socket.is_symlink() and socket.resolve() == socket
+          socket_group = socket.stat().st_gid
+          python = str(root / 'venv' / 'bin' / 'python')
+          owner = ['sudo', '-n', '--', 'setpriv', '--reuid', '1000', '--regid', str(socket_group),
+                   '--clear-groups', '--', 'env',
+                   f'HOME={root / "home"}', f'PATH={os.environ["PATH"]}', f'BUGHUNT_BROWSER_RUNTIME={root / "repo" / ".bughunt"}',
+                   'BUGHUNT_BROWSER_INTEGRATION=1', 'BUGHUNT_ZAP_INTEGRATION=1',
+                   'BUGHUNT_ZAP_PASSIVE_INTEGRATION=1', 'BUGHUNT_ZAP_ACTIVE_INTEGRATION=1',
+                   'BUGHUNT_WORKBENCH_INTEGRATION=1', python]
+          preflight = ('import os,stat,tempfile,pathlib; assert os.getuid()==1000; '
+                       'assert os.getgid()==' + str(socket_group) + ' and os.getgroups()==[]; '
+                       'p=pathlib.Path(tempfile.mkdtemp(dir=' + repr(str(root / 'private')) + ')); '
+                       'assert stat.S_IMODE(p.stat().st_mode)==0o700; '
+                       'f=p/"input"; f.write_text("owned"); f.chmod(0o600); '
+                       'assert stat.S_IMODE(f.stat().st_mode)==0o600; '
+                       'assert f.stat().st_uid==1000; '
+                       'import subprocess,json; '
+                       'endpoint=subprocess.check_output(["docker","context","inspect","--format","{{.Endpoints.docker.Host}}"],text=True).strip(); '
+                       'assert endpoint==' + repr(endpoint) + '; '
+                       'store=json.loads(subprocess.check_output(["docker","info","--format","{{json .DriverStatus}}"],text=True)); '
+                       'assert dict(store).get("driver-type")=="io.containerd.snapshotter.v1"')
+          subprocess.run(owner + ['-c', preflight], cwd=root / 'repo', check=True)
+          suites = [
+              ('browser', ['tests/test_browser_consumer.py'], 13, 0),
+              ('zap', ['tests/test_zap_runtime.py', 'tests/test_zap_passive_consumer.py',
+                       'tests/test_zap_active_consumer.py'], 19, 0),
+              ('workbench', ['tests/test_workbench_consumer.py'], 5, 1),
+          ]
+          validation = (
+              'import sys,xml.etree.ElementTree as ET; '
+              'cases=list(ET.parse(sys.argv[1]).iter("testcase")); '
+              'skipped=[case for case in cases if case.find("skipped") is not None]; '
+              'assert len(cases)==int(sys.argv[2]) and len(skipped)==int(sys.argv[3]); '
+              'assert all(case.find("failure") is None and case.find("error") is None for case in cases); '
+              'assert not skipped or (skipped[0].get("name")=="test_cli_owned_capture_analysis_active_cancel_comparison_and_export[configured-no-use]" '
+              'and "requires explicit BUGHUNT_BURP_PROFILE" in skipped[0].find("skipped").get("message",""))'
+          )
+          for name, paths, expected_count, expected_skips in suites:
+              receipt = root / 'receipts' / f'{name}.xml'
+              subprocess.run(owner + ['-m', 'pytest', *paths, '-q', '-ra',
+                             f'--basetemp={root / "private" / name}', f'--junitxml={receipt}'],
+                             cwd=root / 'repo', check=True)
+              subprocess.run(owner + ['-c', validation, str(receipt), str(expected_count), str(expected_skips)],
+                             cwd=root / 'repo', check=True)
+
+      - name: Copy sanitized JUnit receipts
+        if: always()
+        shell: python
+        run: |
+          import os
+          import json
+          from pathlib import Path
+          import subprocess
+          import sys
+          import textwrap
+
+          target = Path(os.environ['GITHUB_WORKSPACE']) / 'integration-receipts'
+          target.mkdir(exist_ok=True)
+          root = os.environ.get('INTEGRATION_ROOT')
+          if root:
+              sanitize = textwrap.dedent('''
+                  import json,sys
+                  from pathlib import Path
+                  import xml.etree.ElementTree as ET
+                  sanitized = {}
+                  for source in Path(sys.argv[1]).glob('*.xml'):
+                      tree = ET.parse(source)
+                      for element in tree.iter():
+                          for child in list(element):
+                              if child.tag in {'system-out', 'system-err', 'properties'}:
+                                  element.remove(child)
+                              elif child.tag in {'failure', 'error'}:
+                                  child.text = 'Details retained in runner logs.'
+                                  child.set('message', 'Consumer contract failed')
+                      sanitized[source.name] = ET.tostring(tree.getroot(), encoding='unicode')
+                  print(json.dumps(sanitized))
+              ''')
+              content = subprocess.check_output(['sudo', '-n', '--', 'setpriv', '--reuid', '1000',
+                                                '--regid', '1000', '--clear-groups', '--', 'env',
+                                                f'HOME={Path(root) / "home"}', f'PATH={os.environ["PATH"]}', sys.executable,
+                                                '-c', sanitize, str(Path(root) / 'receipts')], text=True)
+              for filename, document in json.loads(content).items():
+                  (target / filename).write_text(document, encoding='utf-8')
+
+      - name: Upload sanitized consumer receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-consumer-junit
+          path: integration-receipts/*.xml
+          if-no-files-found: error
+          retention-days: 14

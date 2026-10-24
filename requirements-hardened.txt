@@ -1,0 +1,27 @@
+# Minimal console and scanner runtime. Update as a reviewed set.
+anyio==4.15.1
+certifi==2026.10.19
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+markdown-it-py==4.2.0
+mdurl==0.1.2
+Pygments==2.21.0
+rich==15.0.0
+typing_extensions==4.16.0
+# Arrow-key picker (bughunt / bughunt console in a terminal).
+linkify-it-py==2.2.0
+mdit-py-plugins==0.6.1
+platformdirs==4.13.0
+textual==8.2.8
+# scan --screenshots. After install: python -m playwright install chromium
+greenlet==3.5.6
+playwright==1.63.0
+pyee==13.0.1
+# Named owned-loopback WebSocket text capture/replay; proxies/compression disabled.
+websockets==15.0.1
+# Portable IANA timezones for explicit Burp Save-items capture timestamps.
+tzdata==2026.3
+# SOCKS5 support for tcurl's Tor route (optional extra: bughunt[tor]); pure Python, MIT.
+socksio==1.0.0

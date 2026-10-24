@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same ref (iterative PR pushes cancel their
+# own older runs instead of all running to completion).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Full matrix on PRs: ubuntu + windows, plus the coarse-clock emulation folded
+  # in as an extra ubuntu step (reuses the single install).
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12"]
+        include:
+          - os: windows-latest
+            python-version: "3.14"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: requirements-hardened.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-hardened.txt
+          # Keep guarded SOCKS tests active with the pinned Tor dependency.
+          pip install socksio==1.0.0
+          pip install -r requirements-dev.txt
+          pip install -e ".[pipeline-yaml]"
+
+      - name: Guard - socksio must be importable
+        shell: bash
+        run: python -c "import socksio"
+
+      - name: Check Python lint and format baseline
+        shell: bash
+        run: python scripts/check_python_quality.py
+
+      - name: Run test suite
+        shell: bash
+        env:
+          BUGHUNT_DESYNC_INTEGRATION: "1"
+          BUGHUNT_RACE_INTEGRATION: "1"
+          BUGHUNT_WS_INTEGRATION: "1"
+          BUGHUNT_RUN_DISPATCH_CONSUMER: "1"
+        run: python -m pytest --ignore=tests/test_packaging.py
+
+      # Permanent gate for the GetTickCount64 coarse-monotonic-clock-fragile test
+      # class. CPython <=3.12 on Windows floors time.monotonic to ~15.625 ms;
+      # coarse_clock_plugin emulates that on ubuntu so a clock-tie flake fails here,
+      # not only on windows-latest. Runs only on ubuntu, reusing the install above.
+      - name: Run test suite (coarse-clock emulation)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          BUGHUNT_TEST_COARSE_CLOCK: "1"
+        run: python -m pytest -p coarse_clock_plugin --ignore=tests/test_packaging.py
+
+  public-install:
+    name: public install (${{ matrix.os }}, py${{ matrix.python-version }})
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12"]
+        include:
+          - os: windows-latest
+            python-version: "3.14"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-hardened.txt
+            pyproject.toml
+      - name: Install test driver
+        run: python -m pip install -r requirements-dev.txt -e .
+      - name: Prove isolated public source and core wheel installs
+        run: python -m pytest tests/test_packaging.py -q
+
+  macos-route:
+    name: route smoke (macOS, py3.12)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            pyproject.toml
+
+      - name: Install route test dependencies
+        run: python -m pip install -r requirements-dev.txt -e .
+
+      - name: Run route suites and require the live macOS smoke
+        run: |
+          python -m pytest tests/test_route_probe.py tests/test_route_core.py tests/test_route_module.py tests/test_console_route_gate.py -q -rs --junitxml=mac-route.xml
+          python -c "import xml.etree.ElementTree as ET; cases = [case for case in ET.parse('mac-route.xml').iter('testcase') if case.get('name') == 'test_macos_live_smoke_loopback_uses_loopback_index']; assert len(cases) == 1 and cases[0].find('skipped') is None, 'Live macOS route smoke did not execute'"
+
+      - name: Upload route test receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-route-junit
+          path: mac-route.xml
+          if-no-files-found: error
+
+  flowcarve-native:
+    name: native flow reader (ubuntu, py3.14)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-hardened.txt
+            pyproject.toml
+
+      - name: Install pinned optional flow reader
+        run: |
+          python -m pip install -c requirements-hardened.txt -r requirements-dev.txt -e . mitmproxy==12.2.3
+          python -m pip check
+
+      - name: Run flowcarve characterization and require native cases
+        run: |
+          python -m pytest tests/test_flowcarve_characterization.py -q -rs --junitxml=flowcarve-native.xml
+          python -c "import xml.etree.ElementTree as ET; cases = [case for case in ET.parse('flowcarve-native.xml').iter('testcase') if case.get('name', '').startswith('test_gated_')]; assert len(cases) == 4 and all(case.find('skipped') is None for case in cases), 'Four native flow reader cases must execute'"
+
+      - name: Upload flow reader test receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowcarve-native-junit
+          path: flowcarve-native.xml
+          if-no-files-found: error
+
+  # On merge to main the exact tree was already validated by the PR (by head SHA),
+  # so the push run is a single ubuntu smoke canary rather than the full matrix.
+  smoke:
+    name: smoke (ubuntu, py3.12)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+          cache-dependency-path: requirements-hardened.txt
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-hardened.txt
+          pip install socksio==1.0.0
+          pip install -r requirements-dev.txt
+          pip install -e ".[pipeline-yaml]"
+
+      - name: Guard - socksio must be importable
+        shell: bash
+        run: python -c "import socksio"
+
+      - name: Check Python lint and format baseline
+        shell: bash
+        run: python scripts/check_python_quality.py
+
+      - name: Run test suite
+        shell: bash
+        run: python -m pytest

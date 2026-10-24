@@ -1,0 +1,3 @@
+# Synthetic identities for an owned lab; select or rotate these with scanner options.
+Bughunt-Lab/1.0 (authorized test client)
+Bughunt-Lab/1.0 (alternate client profile)

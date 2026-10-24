@@ -1,0 +1,12 @@
+# Dependencies of the tcurl addon.
+#
+# tcurl runs inside Bughunt and imports bughunt.core (scope, policy, guarded client), so the
+# bughunt package itself must be installed in the same environment (pip install -e . from the
+# repository root). It is not listed here.
+#
+# Keep these in step with the project pins in pyproject.toml: the egress layer relies on
+# httpx 0.28.1 internals. socksio supplies the SOCKS5 protocol httpx uses to reach Tor; it is
+# also available as the optional extra: pip install "bughunt[tor]".
+httpx==0.28.1
+socksio==1.0.0
+rich>=13.7.0

@@ -1,0 +1,63 @@
+# Keep source text consistent across platforms; native evidence is pinned below.
+
+# Normalize all text files to LF on commit + checkout
+* text=auto eol=lf
+
+# Explicitly enforce LF for script types that break on CRLF
+*.sh   text eol=lf
+*.bash text eol=lf
+*.zsh  text eol=lf
+*.tmpl text eol=lf
+*.py   text eol=lf
+*.rb   text eol=lf
+*.js   text eol=lf
+*.ts   text eol=lf
+*.jsx  text eol=lf
+*.tsx  text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.sql  text eol=lf
+
+# PowerShell scripts use CRLF (Windows-native; PS on Linux/macOS tolerates CRLF)
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+
+# Binary files — no line-ending translation, no diff
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.svg    binary
+*.webp   binary
+*.pdf    binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.tgz    binary
+*.bz2    binary
+*.xz     binary
+*.7z     binary
+*.rar    binary
+*.db     binary
+*.sqlite binary
+*.wasm   binary
+*.ttf    binary
+*.otf    binary
+*.woff   binary
+*.woff2  binary
+*.eot    binary
+*.mp4    binary
+*.mp3    binary
+*.ogg    binary
+*.wav    binary
+*.flac   binary
+
+# Preserve the genuine native Burp export bytes pinned by its regression test.
+tests/fixtures/burp_2026_9_2_owned.xml -text whitespace=trailing-space,space-before-tab,cr-at-eol
