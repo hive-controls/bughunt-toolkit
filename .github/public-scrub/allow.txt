@@ -1,0 +1,31 @@
+# Per-file exceptions for the public scrub. Only the `email` and `private-ipv4` checks can be
+# excepted, one exact file per line. Every other check still applies to these files.
+
+# Synthetic test vectors: example addresses and userinfo URLs, no real person.
+email tests/flowcarve_vectors.py
+email tests/test_flowcarve_characterization.py
+email tests/test_oracle_mod_g2_content.py
+
+# Private ranges as scope, target and parser examples in docs, CLI help and tests; no real host.
+private-ipv4 bughunt/core/scanner.py
+private-ipv4 docs/manual.md
+private-ipv4 examples/targets.example.txt
+private-ipv4 tests/flowcarve_vectors.py
+private-ipv4 tests/test_addons.py
+private-ipv4 tests/test_chromahaus_behavior.py
+private-ipv4 tests/test_console_cli.py
+private-ipv4 tests/test_console_doctor_ui.py
+private-ipv4 tests/test_console_options.py
+private-ipv4 tests/test_lanternjaw_characterization.py
+private-ipv4 tests/test_oracle_mod_g1_recon.py
+private-ipv4 tests/test_oracle_mod_g3_engage.py
+private-ipv4 tests/test_oracle_mod_g5_capture.py
+private-ipv4 tests/test_pulse_characterization.py
+private-ipv4 tests/test_report_writers.py
+private-ipv4 tests/test_route_module.py
+private-ipv4 tests/test_route_probe.py
+private-ipv4 tests/test_scanner_e2e.py
+private-ipv4 tests/test_scanner_planning.py
+private-ipv4 tests/test_scanner_units.py
+private-ipv4 tests/test_workspace_core.py
+private-ipv4 tests/test_workspace_helpers.py

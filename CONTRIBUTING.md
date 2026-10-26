@@ -46,8 +46,10 @@ integration checks have explicit prerequisites; a skip is not an execution recei
 4. Run the quality checker and affected tests, then the full required validation.
 5. Open a pull request with the behavior change and validation results.
 
-The public repository is an exported source snapshot. Maintainers apply reviewed
-changes in the source repository before exporting the next snapshot.
+This repository is where Bughunt is developed; changes land through pull requests.
+Every pull request runs the test suite, the public scrub (credentials, private IP
+ranges, user home paths, email addresses, AI attribution) and the sign-off check;
+all must pass.
 
 ## Code and test expectations
 
@@ -65,4 +67,10 @@ Never commit actual credentials, engagement captures, session data, private
 keys, generated binaries or local workspace files. Use clearly synthetic fixtures.
 Keep genuine recorded fixture bytes and their provenance checks intact.
 
-Contributions use the project's Apache-2.0 license; see [LICENSE](LICENSE).
+Contributions use the project's Apache-2.0 license; see [LICENSE](LICENSE)
+(inbound = outbound).
+
+Sign off each commit (`git commit -s`) to certify the
+[Developer Certificate of Origin](https://developercertificate.org/). The sign-off
+check fails a pull request with any commit that lacks its author's
+`Signed-off-by:` line. There is no CLA.

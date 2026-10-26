@@ -1,0 +1,19 @@
+name: public scrub
+
+# Scans the whole tree for credentials, private IP ranges, user home paths, email addresses and
+# AI attribution, using the scanner pinned below. Per-file exceptions (email and private-ipv4
+# only) live in .github/public-scrub/allow.txt.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scrub:
+    uses: hive-controls/devloop-toolkit/.github/workflows/public-scrub.yml@067d3ebed518d7acece6f7748fc032b8e90238de
+    with:
+      scrub-ref: 067d3ebed518d7acece6f7748fc032b8e90238de
