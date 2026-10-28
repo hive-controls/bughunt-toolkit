@@ -1,0 +1,32 @@
+formic: 1
+name: bughunt
+title: Bughunt
+description: >-
+  Authorized HTTP attack-surface mapper. Opens the interactive console: scope and
+  mission-policy readiness, the guided hunt phases, and the built-in modules. Runs
+  from this checkout's .venv (see the README quickstart).
+launch:
+  command: "{repo}/.venv/bin/bughunt"
+  cwd: "{repo}"
+  windows:
+    command: "{repo}/.venv/Scripts/bughunt.exe"
+config:
+  files:
+    - "README.md"
+    - "docs/manual.md"
+    - "docs/agent-operating-guide.md"
+    - "requirements-hardened.txt"
+status:
+  kind: exit-code
+health:
+  check: [".venv/bin/bughunt", "doctor"]
+  windows:
+    check: [".venv/Scripts/bughunt.exe", "doctor"]
+pane:
+  prefer: window
+  interactive: true
+exit:
+  "0": console closed
+  "1": Bughunt console failed
+  "2": invalid command or input
+  "130": interrupted

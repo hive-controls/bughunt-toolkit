@@ -12,6 +12,8 @@ build/
 !.github/**
 !.gitattributes
 !.gitignore
+!.formic/
+.formic/profile.yaml
 .private-terms
 *.pem
 *.key
