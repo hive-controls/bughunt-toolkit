@@ -14,6 +14,7 @@ build/
 !.gitignore
 !.formic/
 .formic/profile.yaml
+!.agents/
 .private-terms
 *.pem
 *.key
