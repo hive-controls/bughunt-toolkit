@@ -195,6 +195,27 @@ meaning. `--` still marks a scanner target that happens to match a command name.
 Help, catalog, guide, doctor and schema also have structured output. Interactive
 console transports report their explicit noninteractive equivalents.
 
+Preview local workspace setup before writing:
+
+```bash
+bughunt --json scope init --dry-run
+bughunt --json scope add app.example.test --dry-run
+bughunt --json scope remove app.example.test --dry-run
+bughunt --json scope import-urls urls.txt --dry-run
+bughunt --json policy import --file mission-policy.json --dry-run
+```
+
+These commands also accept `--dry-run` without the global `--json` prefix and
+print the same JSON result. Scope plans name the resolved workspace, missing
+files/directories, normalized entry changes or screened URLs. Policy import
+validates the profile and reports its summary and destination. Previews create
+no workspace files and preserve existing bytes; remove `--dry-run` to apply.
+The Python equivalent is `run_module(..., dry_run=True)`. Catalog
+`supports_dry_run` describes that structured API capability; it does not imply
+every legacy CLI has a preview flag. Some other local write operations return
+only a generic `module-plan` with input keys: this prevents execution but does
+not validate referenced evidence or resolve the intended changes.
+
 Result schema version 1 includes status, exit code, timestamps, typed artifacts,
 sanitized errors/warnings, evidence references, policy receipt and metrics.
 Success/planned exit 0; partial/failed exit 1; blocked/invalid/unsupported exit 2;

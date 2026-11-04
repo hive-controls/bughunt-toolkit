@@ -10,7 +10,13 @@ from pathlib import Path
 import tempfile
 
 from bughunt.console import ui
-from bughunt.core.policy import OPERATIONS, PolicyError, Profile, parse_profile, read_document
+from bughunt.core.policy import (
+    OPERATIONS,
+    PolicyError,
+    Profile,
+    parse_profile,
+    read_document,
+)
 from bughunt.core.workspace import workspace_dir
 
 
@@ -21,13 +27,28 @@ def policy_path() -> Path:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bughunt policy", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("example", help="Print a synthetic draft profile to author offline.")
+    commands.add_parser(
+        "example", help="Print a synthetic draft profile to author offline."
+    )
     for command in ("import", "validate", "status", "check"):
         child = commands.add_parser(command)
-        child.add_argument("--file", type=Path, default=None, required=command == "import",
-                           help="Profile file; defaults to the workspace policy.json.")
+        if command == "import":
+            child.add_argument(
+                "--dry-run",
+                action="store_true",
+                help="Validate and print a JSON plan without writing policy.json.",
+            )
+        child.add_argument(
+            "--file",
+            type=Path,
+            default=None,
+            required=command == "import",
+            help="Profile file; defaults to the workspace policy.json.",
+        )
         if command == "check":
-            child.add_argument("target", help="Exact HTTP(S) URL. Evaluated offline only.")
+            child.add_argument(
+                "target", help="Exact HTTP(S) URL. Evaluated offline only."
+            )
             child.add_argument("--operation", required=True, choices=OPERATIONS)
             child.add_argument("--method", default="GET")
             child.add_argument("--callback-domain")
@@ -36,13 +57,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _summary(profile: Profile) -> dict:
     return {
-        "mission": profile.mission, "policy_version": profile.policy_version,
-        "state": profile.freshness(), "verified_at": profile.verified_at.isoformat(),
+        "mission": profile.mission,
+        "policy_version": profile.policy_version,
+        "state": profile.freshness(),
+        "verified_at": profile.verified_at.isoformat(),
         "stale_after_seconds": profile.stale_after_seconds,
-        "assets": len(profile.assets), "exclusions": len(profile.exclusions),
+        "assets": len(profile.assets),
+        "exclusions": len(profile.exclusions),
         "permissions": dict(profile.permissions),
-        "limits": {"requests_per_second": profile.requests_per_second,
-                   "concurrency": profile.concurrency},
+        "limits": {
+            "requests_per_second": profile.requests_per_second,
+            "concurrency": profile.concurrency,
+        },
         "outbound_enforcement": "outbound gate at transport/socket/process boundaries; check is offline",
     }
 
@@ -52,8 +78,14 @@ def _install(document: dict) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=destination.parent,
-                                         prefix="policy-", suffix=".tmp", delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix="policy-",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
             temporary = Path(handle.name)
             json.dump(document, handle, indent=2, allow_nan=False)
             handle.write("\n")
@@ -71,6 +103,14 @@ def install_document(document: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if getattr(args, "dry_run", False):
+        from bughunt.core import api
+
+        result = api.run_module(
+            "policy", operation="import", options={"file": str(args.file)}, dry_run=True
+        )
+        print(json.dumps(result.to_dict()))
+        return result.exit_code
     try:
         if args.command == "example":
             output = example_document()
@@ -78,35 +118,63 @@ def main(argv: list[str] | None = None) -> int:
         else:
             document, profile = read_document(args.file or policy_path())
             if args.command == "check":
-                decision = profile.decide(args.target, args.operation, method=args.method,
-                                          callback_domain=args.callback_domain)
+                decision = profile.decide(
+                    args.target,
+                    args.operation,
+                    method=args.method,
+                    callback_domain=args.callback_domain,
+                )
                 output = asdict(decision)
                 permitted = decision.permitted
             else:
                 if args.command == "import":
                     _install(document)
                 output = _summary(profile)
-                permitted = args.command == "import" or profile.freshness() == "verified"
-        ui.console.print(json.dumps(output, indent=2), markup=False, highlight=False, soft_wrap=True)
+                permitted = (
+                    args.command == "import" or profile.freshness() == "verified"
+                )
+        ui.console.print(
+            json.dumps(output, indent=2), markup=False, highlight=False, soft_wrap=True
+        )
         return 0 if permitted else 2
     except (PolicyError, OSError):
-        ui.console.print("Policy blocked: missing, unreadable or invalid profile. No outbound action ran.",
-                         markup=False)
+        ui.console.print(
+            "Policy blocked: missing, unreadable or invalid profile. No outbound action ran.",
+            markup=False,
+        )
         return 2
 
 
 def example_document() -> dict:
     return {
-        "schema_version": 1, "mission": "owned-lab", "policy_version": "1",
-        "state": "draft", "source": "Owned laboratory rules; replace with verified provenance",
-        "verified_at": datetime.now(timezone.utc).isoformat(), "stale_after_seconds": 86400,
-        "assets": [{"id": "lab-api", "origin": "http://127.0.0.1:8080", "paths": ["/api/"],
-                    "operations": ["manual"], "methods": ["GET", "HEAD"]}],
-        "exclusions": [{"id": "lab-admin", "origin": "http://127.0.0.1:8080",
-                        "paths": ["/api/admin/"]}],
+        "schema_version": 1,
+        "mission": "owned-lab",
+        "policy_version": "1",
+        "state": "draft",
+        "source": "Owned laboratory rules; replace with verified provenance",
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "stale_after_seconds": 86400,
+        "assets": [
+            {
+                "id": "lab-api",
+                "origin": "http://127.0.0.1:8080",
+                "paths": ["/api/"],
+                "operations": ["manual"],
+                "methods": ["GET", "HEAD"],
+            }
+        ],
+        "exclusions": [
+            {
+                "id": "lab-admin",
+                "origin": "http://127.0.0.1:8080",
+                "paths": ["/api/admin/"],
+            }
+        ],
         "permissions": {operation: operation == "manual" for operation in OPERATIONS},
         "limits": {"requests_per_second": 1, "concurrency": 1},
-        "required_headers": {"X-Researcher": "owned-lab"}, "user_agent": "Bughunt-owned-lab",
-        "callback_domains": [], "ai_notes": "Confirm AI policy before marking verified.",
+        "required_headers": {"X-Researcher": "owned-lab"},
+        "user_agent": "Bughunt-owned-lab",
+        "callback_domains": [],
+        "ai_notes": "Confirm AI policy before marking verified.",
         "confidentiality_notes": "Keep private evidence in the ignored workspace.",
     }

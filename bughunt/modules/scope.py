@@ -165,11 +165,36 @@ def build_parser() -> argparse.ArgumentParser:
         "Keep the hosts this engagement may touch, and the URL list other modules share.",
     )
     cli.add_verbs(parser, _COMMANDS, required=True)
+    branches = next(
+        action
+        for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    ).choices
+    for operation in ("init", "add", "remove", "import-urls"):
+        branches[operation].add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Validate and print a JSON plan without writing workspace files.",
+        )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parsed = build_parser().parse_args(argv)
+    if getattr(parsed, "dry_run", False):
+        import json
+        from bughunt.core import api
+
+        options = {
+            key: value
+            for key, value in vars(parsed).items()
+            if key not in {"command", "dry_run"}
+        }
+        result = api.run_module(
+            "scope", operation=parsed.command, options=options, dry_run=True
+        )
+        print(json.dumps(result.to_dict()))
+        return result.exit_code
     command = _COMMANDS.get(parsed.command)
     if command is None:
         _show("[err]Unknown scope command.[/err]")

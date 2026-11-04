@@ -62,7 +62,42 @@ def _effect(resource, action, identifiers=(), changed=True):
     )
 
 
-def _scope(operation, args):
+def _scope_plan(operation, args):
+    value = {
+        "workspace": str(workspace.workspace_dir().resolve()),
+        "operation": operation,
+    }
+    if operation in {"init", "add", "import-urls"}:
+        value["create"] = [
+            path.name
+            for path in (
+                workspace.requests_dir(),
+                workspace.scope_path(),
+                workspace.urls_path(),
+            )
+            if not path.exists()
+        ]
+    if operation in {"add", "remove"}:
+        editor = (
+            workspace.add_entries if operation == "add" else workspace.remove_entries
+        )
+        value["entries"], value["unchanged"] = editor(args.hosts, dry_run=True)
+    if operation == "import-urls":
+        from bughunt.modules.scope import _screen_urls
+
+        if not workspace.scope_is_active():
+            raise ValueError("Scope must be initialized")
+        value["urls"], value["skipped"] = _screen_urls(
+            Path(args.file).read_text(encoding="utf-8"), workspace.allowed
+        )
+        stored = set(workspace.read_urls())
+        value["new_urls"] = [url for url in value["urls"] if url not in stored]
+    return _planned("scope-plan", value)
+
+
+def _scope(operation, args, *, dry_run=False):
+    if dry_run and operation in {"init", "add", "remove", "import-urls"}:
+        return _scope_plan(operation, args)
     if operation in {"list", "path"}:
         return inventory(
             "scope",
@@ -104,13 +139,23 @@ def _scope(operation, args):
     raise ValueError("Unknown scope operation")
 
 
-def _policy(operation, args):
+def _policy(operation, args, *, dry_run=False):
     from bughunt.core.policy import read_document
     from bughunt.modules import policy
 
     if operation == "example":
         return inventory("policy-example", policy.example_document())
     document, profile = read_document(args.file or policy.policy_path())
+    if operation == "import" and dry_run:
+        return _planned(
+            "policy-plan",
+            {
+                "destination": str(policy.policy_path().resolve()),
+                "operation": "import",
+                "replaces_existing": policy.policy_path().exists(),
+                "profile": policy._summary(profile),
+            },
+        )
     if operation == "check":
         decision = profile.decide(
             args.target,
@@ -1496,6 +1541,10 @@ def execute(name: str, operation: str, args, context: ExecutionContext) -> Modul
     if name in _PREPARED_HANDLERS:
         return _PREPARED_HANDLERS[name](operation, args, dry_run=context.dry_run)
     if context.dry_run:
+        if name == "scope" and operation in {"init", "add", "remove", "import-urls"}:
+            return _scope(operation, args, dry_run=True)
+        if name == "policy" and operation == "import":
+            return _policy(operation, args, dry_run=True)
         if name == "cert":
             return _cert(operation, args, dry_run=True)
         if name == "dns":

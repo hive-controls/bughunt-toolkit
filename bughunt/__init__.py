@@ -1,6 +1,6 @@
 """Authorized HTTP testing tools and supporting integrations."""
 
-VERSION = "2.15.0"
+VERSION = "2.15.1"
 
 __all__ = [
     "VERSION",
