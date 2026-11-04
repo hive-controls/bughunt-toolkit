@@ -562,14 +562,14 @@ def test_catalog_forms_are_null_only_for_disabled_tools(exported):
             assert "disabled" in module["unavailable"]
 
 
-def test_catalog_has_45_forms_and_779_options(exported):
+def test_catalog_has_45_forms_and_784_options(exported):
     forms = [m["form"] for m in _modules(exported) if m["form"] is not None]
     assert len(forms) == 45
     options = [o for form in forms for o in form["options"]]
-    assert len(options) == 779
+    assert len(options) == 784
     assert Counter(o["kind"] for o in options) == {
         "value": 454,
-        "bool": 179,
+        "bool": 184,
         "positional": 146,
     }
 

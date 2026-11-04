@@ -151,8 +151,9 @@ def normalize_entry(token: str) -> str:
     return fold_host(text)
 
 
-def add_entries(tokens: Entries) -> tuple[Entries, Entries]:
-    init_workspace()
+def add_entries(tokens: Entries, *, dry_run: bool = False) -> tuple[Entries, Entries]:
+    if not dry_run:
+        init_workspace()
     normalized = [normalize_entry(token) for token in tokens]
     stored = read_entries()
     seen = {entry.lower() for entry in stored}
@@ -161,11 +162,14 @@ def add_entries(tokens: Entries) -> tuple[Entries, Entries]:
     for value in normalized:
         (repeats if value.lower() in seen else fresh).append(value)
         seen.add(value.lower())
-    _store_entries(stored + fresh)
+    if not dry_run:
+        _store_entries(stored + fresh)
     return fresh, repeats
 
 
-def remove_entries(tokens: Entries) -> tuple[Entries, Entries]:
+def remove_entries(
+    tokens: Entries, *, dry_run: bool = False
+) -> tuple[Entries, Entries]:
     if not scope_is_active():
         return [], [token.strip() for token in tokens if token.strip()]
     requested = [(token.strip(), normalize_entry(token).lower()) for token in tokens]
@@ -175,7 +179,8 @@ def remove_entries(tokens: Entries) -> tuple[Entries, Entries]:
     survivors = [entry for entry in stored if entry.lower() not in targets]
     gone = {entry.lower() for entry in removed}
     missing = [original for original, canonical in requested if canonical not in gone]
-    _store_entries(survivors)
+    if not dry_run:
+        _store_entries(survivors)
     return removed, missing
 
 

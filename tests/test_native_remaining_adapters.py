@@ -1,11 +1,252 @@
 import json
 
 import httpx
+import pytest
 
 import bughunt
 from bughunt.core import route
 from test_gate import boundaries, policy
 from test_native_lab_adapters import assert_artifact_contract
+
+
+def _tree_bytes(root):
+    return {
+        str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
+        for path in root.rglob("*")
+    }
+
+
+def test_scope_write_previews_describe_changes_without_writes(tmp_path, monkeypatch):
+    from bughunt.core import workspace
+
+    root = tmp_path / "workspace"
+    monkeypatch.setenv("BUGHUNT_SCOPE", str(root))
+    result = bughunt.run_module("scope", operation="init", dry_run=True)
+    assert result.status == "planned"
+    plan = result.artifacts[0].payload["items"][0]
+    assert plan["workspace"] == str(root.resolve())
+    assert set(plan["create"]) == {"requests", "scope.txt", "urls.txt"}
+    assert not root.exists()
+    assert bughunt.run_module("scope", operation="init").status == "success"
+    workspace.add_entries(["existing.example"])
+    before = _tree_bytes(tmp_path)
+    for operation, hosts, expected in [
+        (
+            "add",
+            ["EXISTING.example", "https://new.example/a", "new.example"],
+            ["new.example"],
+        ),
+        ("remove", ["EXISTING.example", "missing.example"], ["existing.example"]),
+    ]:
+        result = bughunt.run_module(
+            "scope", operation=operation, options={"hosts": hosts}, dry_run=True
+        )
+        assert result.status == "planned", result.to_dict()
+        assert result.artifacts[0].payload["items"][0]["entries"] == expected
+        assert _tree_bytes(tmp_path) == before
+        actual = bughunt.run_module(
+            "scope", operation=operation, options={"hosts": hosts}
+        )
+        assert actual.artifacts[0].payload["identifiers"] == expected
+        before = _tree_bytes(tmp_path)
+
+
+def test_scope_url_preview_matches_write(tmp_path, monkeypatch):
+    from bughunt.core import workspace
+
+    monkeypatch.setenv("BUGHUNT_SCOPE", str(tmp_path / "workspace"))
+    workspace.add_entries(["allowed.example"])
+    source = tmp_path / "urls.txt"
+    source.write_text("https://allowed.example/a\nhttps://foreign.example/a\n")
+    before = _tree_bytes(tmp_path)
+    result = bughunt.run_module(
+        "scope", operation="import-urls", options={"file": str(source)}, dry_run=True
+    )
+    assert result.status == "planned", result.to_dict()
+    assert result.artifacts[0].payload["items"][0]["urls"] == [
+        "https://allowed.example/a"
+    ]
+    assert _tree_bytes(tmp_path) == before
+    actual = bughunt.run_module(
+        "scope", operation="import-urls", options={"file": str(source)}
+    )
+    assert actual.artifacts[0].payload["urls"] == workspace.read_urls()
+
+
+def test_policy_preview_validates_and_preserves_destination(tmp_path, monkeypatch):
+    from bughunt.modules import policy as command
+
+    root = tmp_path / "workspace"
+    monkeypatch.setenv("BUGHUNT_SCOPE", str(root))
+    source = tmp_path / "profile.json"
+    source.write_text(json.dumps(command.example_document()))
+    for installed in (False, True):
+        if installed:
+            root.mkdir()
+            (root / "policy.json").write_text("existing bytes")
+        before = _tree_bytes(tmp_path)
+        result = bughunt.run_module(
+            "policy", operation="import", options={"file": str(source)}, dry_run=True
+        )
+        assert result.status == "planned", result.to_dict()
+        plan = result.artifacts[0].payload["items"][0]
+        assert plan["destination"] == str((root / "policy.json").resolve())
+        assert plan["profile"]["mission"] == "owned-lab"
+        assert _tree_bytes(tmp_path) == before
+    source.write_text("{}")
+    result = bughunt.run_module(
+        "policy", operation="import", options={"file": str(source)}, dry_run=True
+    )
+    assert result.status == "invalid", result.to_dict()
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        ["scope", "init", "--dry-run"],
+        ["scope", "add", "allowed.example", "--dry-run"],
+    ],
+)
+@pytest.mark.parametrize("structured", [False, True])
+def test_scope_cli_preview_is_available(
+    tmp_path, monkeypatch, capsys, words, structured
+):
+    from bughunt.core.scanner import main
+
+    root = tmp_path / "workspace"
+    monkeypatch.setenv("BUGHUNT_SCOPE", str(root))
+    assert main((["--json"] if structured else []) + words) == 0
+    value = json.loads(capsys.readouterr().out)
+    assert value["status"] == "planned"
+    assert not root.exists()
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_policy_cli_preview(tmp_path, monkeypatch, capsys, structured):
+    from bughunt.core.scanner import main
+    from bughunt.modules import policy as command
+
+    root = tmp_path / "workspace"
+    monkeypatch.setenv("BUGHUNT_SCOPE", str(root))
+    source = tmp_path / "profile.json"
+    source.write_text(json.dumps(command.example_document()))
+    words = ["policy", "import", "--file", str(source), "--dry-run"]
+    before = _tree_bytes(tmp_path)
+    assert main((["--json"] if structured else []) + words) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "planned"
+    assert _tree_bytes(tmp_path) == before
+
+
+@pytest.mark.parametrize(
+    "operation,options",
+    [
+        ("add", {"hosts": ["invalid host"]}),
+        ("import-urls", {"file": "missing-urls.txt"}),
+    ],
+)
+def test_invalid_scope_preview_creates_nothing(
+    tmp_path, monkeypatch, operation, options
+):
+    monkeypatch.setenv("BUGHUNT_SCOPE", str(tmp_path / "workspace"))
+    before = _tree_bytes(tmp_path)
+    result = bughunt.run_module(
+        "scope", operation=operation, options=options, dry_run=True
+    )
+    assert result.status == "invalid", result.to_dict()
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_preview_flags_are_in_catalog_and_cli_help(capsys):
+    from bughunt.core import adapters
+
+    for name, operation in [
+        ("scope", verb) for verb in ("init", "add", "remove", "import-urls")
+    ] + [("policy", "import")]:
+        parser = adapters.parser_for(name)
+        with pytest.raises(SystemExit) as stopped:
+            parser.parse_args([operation, "--help"])
+        assert stopped.value.code == 0
+        assert "--dry-run" in capsys.readouterr().out
+        advertised = next(
+            row
+            for row in adapters.describe(name)["operations"]
+            if row["id"] == operation
+        )
+        assert advertised["supports_dry_run"] is True
+
+
+def _write_preview_values(source, destination, job_id):
+    return {
+        "hosts": ["allowed.example"],
+        "file": str(source),
+        "name": "owned",
+        "kind": "owner",
+        "origin": ["https://allowed.example"],
+        "owned": True,
+        "header": "cookie",
+        "value": ["synthetic"],
+        "url": "https://allowed.example/app",
+        "run_id": "synthetic-run",
+        "state": "complete",
+        "interface": ["owned"],
+        "request": str(source),
+        "source_id": "synthetic-source",
+        "timezone": "UTC",
+        "exchange_ids": ["synthetic-exchange"],
+        "exchange_id": "synthetic-exchange",
+        "output": str(destination / "output.json"),
+        "label": "owned",
+        "text": ["note"],
+        "job_id": job_id,
+        "sha256": "a" * 64,
+    }
+
+
+def test_all_catalog_write_previews_leave_files_unchanged(policy, boundaries, tmp_path):
+    import argparse
+    from bughunt.console import catalog
+    from bughunt.core import adapters, job, workspace
+
+    budget = job.Budget(frozenset({("GET", "https://allowed.example/app")}), 1, 30)
+    budget.activate()
+    source = tmp_path / "urls.txt"
+    source.write_text("https://allowed.example/app\n")
+    values = _write_preview_values(source, tmp_path, budget.job_id)
+    before = _tree_bytes(tmp_path)
+    workspace_before = _tree_bytes(workspace.workspace_dir())
+    audited = []
+    for _, names in catalog.MODULE_GROUPS:
+        for name in names:
+            for operation in adapters.describe(name)["operations"]:
+                if (
+                    operation["side_effect"] != "write"
+                    or not operation["supports_dry_run"]
+                ):
+                    continue
+                verb = operation["id"]
+                options = {
+                    a.dest: values[a.dest]
+                    for p in adapters._selected_parsers(adapters.parser_for(name), verb)
+                    for a in p._actions
+                    if not isinstance(a, argparse._SubParsersAction) and a.required
+                }
+                if name == "policy":
+                    options["file"] = str(workspace.workspace_dir() / "policy.json")
+                if name == "session" and verb == "set":
+                    options["kind"] = "cookie"
+                if name == "chroma":
+                    options.update(i_understand=True, dest="preview-samples")
+                result = bughunt.run_module(
+                    name, operation=verb, options=options, dry_run=True
+                )
+                assert result.status == "planned", (name, verb, result.to_dict())
+                assert _tree_bytes(tmp_path) == before, (name, verb)
+                assert _tree_bytes(workspace.workspace_dir()) == workspace_before, (
+                    name,
+                    verb,
+                )
+                audited.append((name, verb))
+    assert len(audited) >= 36
 
 
 def test_repeater_structured_send_and_preview_preserve_source(

@@ -39,7 +39,6 @@
     "bughunt/modules/ledger.py": "f470849874190a2c0493fd784b7dc3d65237aa5eeecdf2e8c261baadc5429079",
     "bughunt/modules/mail.py": "1f094cd27e5f6b9367ed7f6ce8a30ab5c0f3aa161a95b8a77d5c187e99e30e35",
     "bughunt/modules/oast.py": "d19270efc0e61112ec626e98389fea719fb1a9c8024eb129142fbee12fd21cda",
-    "bughunt/modules/policy.py": "85dc5fdb0faadc13913c5ae5f26861e139970d735d3a29f38b7b9357e8748566",
     "bughunt/modules/race.py": "c86a23f95e807e442d3f398205278b6ba94685f5b0b86505ee7d1bba076fbf37",
     "bughunt/modules/redirect.py": "764c6d0bf7e8fb54103bf7bc94b9abf2d78f392863e22a94611dacfe727d0747",
     "bughunt/modules/route.py": "6f4be3d2f2adf0a11e41332f73bc6f001470ca61d92e207af909ebde169d43e2",
