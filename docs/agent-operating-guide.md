@@ -65,9 +65,20 @@ report paths rather than pasting raw credential-bearing captures.
 
 ## When a hunt needs orchestration
 
-The repo ships a `hunt-scan` skill for driving a bounded, authorized web-testing
-experiment (evidence selection, permitted tests, sanitized receipts). Prefer it
-over ad-hoc flag combinations when the task is a structured hunt.
+This repo does not ship an agent skill. A consuming workspace may provide its own
+driver skill (for example one named `hunt-scan`) for a bounded, authorized
+web-testing experiment. Prefer such a skill over ad-hoc flag combinations when
+the task is a structured hunt. At minimum, a driver skill should:
+
+- point the agent at this guide;
+- check the installed version and enumerate capabilities with `bughunt version`
+  and `bughunt catalog` instead of assuming flags;
+- require the scope file and a verified, dated mission policy (see the gates
+  above) before any traffic leaves.
+
+If a driver skill requires an independently verified policy, follow it rather than
+the README quickstart: `--fast --authorized` writes a verified policy for the
+planned origins itself, which is meant for owned local targets.
 
 ## Never
 
